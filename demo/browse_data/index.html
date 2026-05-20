@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinanceBench Browser</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .evidence-text {
+      background: #fef9ec;
+      border-left: 3px solid #f59e0b;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.8125rem;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .fullpage-text {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.375rem;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: 'Menlo', 'Courier New', monospace;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 text-sm antialiased" x-data="app()" x-init="init()">
+
+<!-- Loading overlay -->
+<div x-show="loading" class="fixed inset-0 flex items-center justify-center bg-white z-50">
+  <div class="text-center">
+    <div class="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+    <p class="text-gray-500 text-sm">Loading FinanceBench data…</p>
+  </div>
+</div>
+
+<!-- Error overlay -->
+<div x-show="!!error && !loading" class="fixed inset-0 flex items-center justify-center bg-white z-50">
+  <div class="bg-red-50 border border-red-200 rounded-xl p-8 max-w-md text-center shadow-sm">
+    <div class="text-red-400 text-4xl mb-3">⚠</div>
+    <h2 class="font-semibold text-red-700 mb-2">Failed to load data</h2>
+    <p class="text-red-600 text-xs mb-4 font-mono" x-text="error"></p>
+    <div class="bg-white border border-gray-200 rounded-lg p-3 text-left text-xs text-gray-600">
+      <p class="font-medium text-gray-700 mb-1">Serve from the project root:</p>
+      <code class="block text-indigo-700 bg-indigo-50 px-2 py-1 rounded">cd financebench &amp;&amp; python -m http.server 8000</code>
+      <p class="mt-2">Then open <code class="text-indigo-700">http://localhost:8000/demo/browse_data/</code></p>
+    </div>
+  </div>
+</div>
+
+<!-- Main layout -->
+<div x-show="!loading && !error" x-cloak class="flex h-screen overflow-hidden">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+  <aside class="w-52 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+
+    <!-- Branding -->
+    <div class="px-3 pt-3 pb-2.5 border-b border-gray-100">
+      <div class="font-bold text-indigo-700 text-sm tracking-tight leading-tight">FinanceBench</div>
+      <div class="text-gray-400 text-xs">Data Browser</div>
+    </div>
+
+    <!-- Mode toggle -->
+    <div class="px-3 pt-3 pb-2">
+      <div class="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-medium">
+        <button @click="switchMode('questions')"
+          :class="mode==='questions' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+          class="flex-1 py-1.5 transition-colors">Questions</button>
+        <button @click="switchMode('documents')"
+          :class="mode==='documents' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+          class="flex-1 py-1.5 transition-colors">Documents</button>
+      </div>
+    </div>
+
+    <!-- Filters (scrollable) -->
+    <div class="flex-1 overflow-y-auto scrollbar-thin px-3 pb-4">
+
+      <!-- Question filters -->
+      <div x-show="mode==='questions'">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Filters</span>
+          <button x-show="hasActiveQFilters()" @click="clearQFilters()"
+            class="text-xs text-indigo-600 hover:underline">Clear all</button>
+        </div>
+        <div class="space-y-2">
+          <input x-model="qSearch" type="search" placeholder="Search questions…"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:bg-white placeholder-gray-400">
+
+          <select x-model="qCompany"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All companies</option>
+            <template x-for="c in allCompanies" :key="c">
+              <option :value="c" x-text="c"></option>
+            </template>
+          </select>
+
+          <select x-model="qSector"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All sectors</option>
+            <template x-for="s in allSectors" :key="s">
+              <option :value="s" x-text="s"></option>
+            </template>
+          </select>
+
+          <select x-model="qDocType"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All doc types</option>
+            <template x-for="t in allDocTypes" :key="t">
+              <option :value="t" x-text="t.toUpperCase()"></option>
+            </template>
+          </select>
+
+          <select x-model="qYear"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All years</option>
+            <template x-for="y in allYears" :key="y">
+              <option :value="y" x-text="y"></option>
+            </template>
+          </select>
+
+          <select x-model="qQType"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All question types</option>
+            <template x-for="t in allQTypes" :key="t">
+              <option :value="t" x-text="t"></option>
+            </template>
+          </select>
+
+          <select x-model="qReasoning"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All reasoning types</option>
+            <template x-for="r in allReasonings" :key="r">
+              <option :value="r" x-text="r"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+
+      <!-- Document filters -->
+      <div x-show="mode==='documents'">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Filters</span>
+          <button x-show="hasActiveDFilters()" @click="clearDFilters()"
+            class="text-xs text-indigo-600 hover:underline">Clear all</button>
+        </div>
+        <div class="space-y-2">
+          <input x-model="dSearch" type="search" placeholder="Search documents…"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:bg-white placeholder-gray-400">
+
+          <select x-model="dCompany"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All companies</option>
+            <template x-for="c in allCompanies" :key="c">
+              <option :value="c" x-text="c"></option>
+            </template>
+          </select>
+
+          <select x-model="dSector"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All sectors</option>
+            <template x-for="s in allSectors" :key="s">
+              <option :value="s" x-text="s"></option>
+            </template>
+          </select>
+
+          <select x-model="dDocType"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All doc types</option>
+            <template x-for="t in allDocTypes" :key="t">
+              <option :value="t" x-text="t.toUpperCase()"></option>
+            </template>
+          </select>
+
+          <select x-model="dYear"
+            class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+            <option value="">All years</option>
+            <template x-for="y in allYears" :key="y">
+              <option :value="y" x-text="y"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer stats -->
+    <div class="px-3 py-2 border-t border-gray-100 text-xs text-gray-400 flex justify-between">
+      <span><span x-text="questions.length"></span> Qs</span>
+      <span><span x-text="documents.length"></span> docs</span>
+    </div>
+  </aside>
+
+  <!-- ── List pane ───────────────────────────────────────────────────── -->
+  <div class="w-72 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
+
+    <!-- List header -->
+    <div class="px-3 py-2 border-b border-gray-100 bg-gray-50">
+      <span class="text-xs text-gray-500 font-medium">
+        <span x-show="mode==='questions'"
+          x-text="visibleQuestions().length + ' / ' + questions.length + ' questions'"></span>
+        <span x-show="mode==='documents'"
+          x-text="visibleDocuments().length + ' / ' + documents.length + ' documents'"></span>
+      </span>
+    </div>
+
+    <!-- Question list -->
+    <div x-show="mode==='questions'" class="flex-1 overflow-y-auto scrollbar-thin divide-y divide-gray-50">
+      <template x-if="visibleQuestions().length === 0">
+        <div class="p-8 text-center text-gray-400 text-xs">No questions match the current filters.</div>
+      </template>
+      <template x-for="q in visibleQuestions()" :key="q.financebench_id">
+        <div @click="selectItem(q)"
+          class="px-3 py-2.5 cursor-pointer transition-colors border-l-2"
+          :class="selected?.financebench_id === q.financebench_id
+            ? 'bg-indigo-50 border-indigo-500'
+            : 'border-transparent hover:bg-gray-50'">
+          <div class="line-clamp-2 text-xs leading-relaxed text-gray-800 mb-1.5" x-text="q.question"></div>
+          <div class="flex flex-wrap gap-1 items-center">
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium" x-text="q.company"></span>
+            <span class="px-1.5 py-0.5 rounded text-xs font-medium border"
+              :class="qTypeClass(q.question_type)" x-text="q.question_type"></span>
+            <span x-show="q._doc?.doc_period"
+              class="text-xs text-gray-400" x-text="q._doc?.doc_period"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Document list -->
+    <div x-show="mode==='documents'" class="flex-1 overflow-y-auto scrollbar-thin divide-y divide-gray-50">
+      <template x-if="visibleDocuments().length === 0">
+        <div class="p-8 text-center text-gray-400 text-xs">No documents match the current filters.</div>
+      </template>
+      <template x-for="d in visibleDocuments()" :key="d.doc_name">
+        <div @click="selectItem(d)"
+          class="px-3 py-2 cursor-pointer transition-colors border-l-2"
+          :class="selected?.doc_name === d.doc_name && mode==='documents'
+            ? 'bg-indigo-50 border-indigo-500'
+            : 'border-transparent hover:bg-gray-50'">
+          <div class="font-mono text-xs text-gray-800 font-medium truncate mb-0.5" x-text="d.doc_name"></div>
+          <div class="flex flex-wrap gap-1 items-center">
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600" x-text="d.company"></span>
+            <span class="px-1.5 py-0.5 rounded text-xs font-medium"
+              :class="docTypeClass(d.doc_type)" x-text="(d.doc_type||'').toUpperCase()"></span>
+            <span class="text-xs text-gray-400" x-text="d.doc_period"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ── Detail pane ─────────────────────────────────────────────────── -->
+  <main class="flex-1 overflow-y-auto scrollbar-thin bg-gray-50">
+
+    <!-- Empty state -->
+    <div x-show="!selected" class="h-full flex items-center justify-center text-gray-300 select-none">
+      <div class="text-center">
+        <div class="text-6xl mb-3 opacity-30">⟵</div>
+        <p class="text-sm text-gray-400">Select an item to view details</p>
+      </div>
+    </div>
+
+    <!-- ── Question detail ── -->
+    <div x-show="selected && mode==='questions'" class="max-w-3xl mx-auto p-6">
+
+      <!-- Badges row -->
+      <div class="flex flex-wrap gap-2 mb-3" x-show="selected">
+        <span class="font-mono text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded"
+          x-text="selected?.financebench_id"></span>
+        <span class="px-2 py-0.5 rounded text-xs font-medium border"
+          :class="qTypeClass(selected?.question_type)" x-text="selected?.question_type"></span>
+        <span x-show="selected?._doc?.doc_type"
+          class="px-2 py-0.5 rounded text-xs font-medium"
+          :class="docTypeClass(selected?._doc?.doc_type)"
+          x-text="(selected?._doc?.doc_type||'').toUpperCase()"></span>
+        <span x-show="selected?._doc?.doc_period"
+          class="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600"
+          x-text="selected?._doc?.doc_period"></span>
+        <span x-show="selected?._doc?.gics_sector"
+          class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600"
+          x-text="selected?._doc?.gics_sector"></span>
+      </div>
+
+      <!-- Question -->
+      <h2 class="text-base font-semibold text-gray-900 leading-snug mb-5" x-text="selected?.question"></h2>
+
+      <!-- Answer card -->
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4">
+        <div class="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-0.5">Gold Answer</div>
+        <div class="text-lg font-bold text-emerald-800" x-text="selected?.answer"></div>
+      </div>
+
+      <!-- Meta row -->
+      <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500 mb-4">
+        <span>Company: <strong class="text-gray-800 font-medium" x-text="selected?.company"></strong></span>
+        <span>Document: <code class="text-gray-700 text-xs" x-text="selected?.doc_name"></code></span>
+        <span x-show="selected?.question_reasoning">
+          Reasoning: <strong class="text-gray-800 font-medium" x-text="selected?.question_reasoning"></strong>
+        </span>
+      </div>
+
+      <!-- Justification -->
+      <div x-show="selected?.justification" class="mb-5">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Justification</div>
+        <p class="text-sm text-gray-700 leading-relaxed" x-text="selected?.justification"></p>
+      </div>
+
+      <!-- Evidence section -->
+      <div x-show="selected?.evidence?.length">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3"
+          x-text="'Evidence — ' + (selected?.evidence?.length || 0) + ' passage' + (selected?.evidence?.length !== 1 ? 's' : '')">
+        </div>
+
+        <template x-for="(ev, idx) in (selected?.evidence || [])" :key="idx">
+          <div class="mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+
+            <!-- Evidence header -->
+            <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+              <div class="text-xs text-gray-500 flex items-center gap-2">
+                <span class="font-medium text-gray-700">Passage <span x-text="idx + 1"></span></span>
+                <span class="text-gray-300">·</span>
+                <span>p. <span class="font-medium text-gray-700"
+                  x-text="(ev.evidence_page_num ?? 0) + 1"></span></span>
+                <span class="text-gray-300">·</span>
+                <code class="text-gray-600 text-xs"
+                  x-text="ev.doc_name || ev.evidence_doc_name || selected?.doc_name"></code>
+              </div>
+              <button @click="togglePdf(idx)"
+                class="text-xs px-2.5 py-1 rounded-lg border font-medium transition-all"
+                :class="showPdfForEvidence[idx]
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'">
+                <span x-text="showPdfForEvidence[idx] ? '✕ Hide PDF' : '⊞ View in PDF'"></span>
+              </button>
+            </div>
+
+            <!-- Evidence text -->
+            <div class="p-4">
+              <div class="evidence-text rounded-lg mb-3" x-text="ev.evidence_text"></div>
+
+              <!-- Full page toggle -->
+              <div x-show="ev.evidence_text_full_page && ev.evidence_text_full_page !== ev.evidence_text">
+                <details>
+                  <summary class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer select-none mb-2 list-none flex items-center gap-1">
+                    <span class="text-gray-300">▸</span> Show full page text
+                  </summary>
+                  <div class="fullpage-text" x-text="ev.evidence_text_full_page"></div>
+                </details>
+              </div>
+            </div>
+
+            <!-- PDF iframe (toggled) -->
+            <div x-show="showPdfForEvidence[idx]" class="border-t border-gray-100">
+              <iframe :src="pdfUrl(ev)" class="w-full" style="height: 62vh;"
+                frameborder="0" loading="lazy"></iframe>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ── Document detail ── -->
+    <div x-show="selected && mode==='documents'" class="max-w-3xl mx-auto p-6">
+
+      <!-- Doc header -->
+      <div class="flex flex-wrap items-center gap-2 mb-5" x-show="selected">
+        <span class="font-mono text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-lg font-semibold"
+          x-text="selected?.doc_name"></span>
+        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold"
+          :class="docTypeClass(selected?.doc_type)"
+          x-text="(selected?.doc_type||'').toUpperCase()"></span>
+      </div>
+
+      <!-- Metadata grid -->
+      <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-4 text-sm mb-6">
+        <div>
+          <dt class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Company</dt>
+          <dd class="text-gray-900 font-medium" x-text="selected?.company"></dd>
+        </div>
+        <div>
+          <dt class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Sector (GICS)</dt>
+          <dd class="text-gray-900" x-text="selected?.gics_sector || '—'"></dd>
+        </div>
+        <div>
+          <dt class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Period</dt>
+          <dd class="text-gray-900" x-text="selected?.doc_period || '—'"></dd>
+        </div>
+        <div>
+          <dt class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Questions in set</dt>
+          <dd>
+            <span class="text-indigo-700 font-semibold" x-text="questionsForDoc(selected?.doc_name)"></span>
+            <span class="text-gray-400 text-xs"> / 150</span>
+          </dd>
+        </div>
+      </dl>
+
+      <!-- Action buttons -->
+      <div class="flex flex-wrap gap-3 mb-6">
+        <a :href="'../../pdfs/' + (selected?.doc_name||'') + '.pdf'" target="_blank"
+          class="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          Open PDF
+        </a>
+        <a x-show="selected?.doc_link" :href="selected?.doc_link" target="_blank"
+          class="inline-flex items-center gap-1.5 px-3 py-2 bg-white text-indigo-600 text-xs font-medium rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clip-rule="evenodd"/>
+          </svg>
+          Source URL
+        </a>
+        <button x-show="questionsForDoc(selected?.doc_name) > 0"
+          @click="switchMode('questions'); qCompany=''; qSector=''; qDocType=''; qYear=''; qQType=''; qReasoning=''; qSearch=selected?.doc_name || ''"
+          class="inline-flex items-center gap-1.5 px-3 py-2 bg-white text-violet-600 text-xs font-medium rounded-lg border border-violet-200 hover:bg-violet-50 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+          </svg>
+          Browse questions
+        </button>
+      </div>
+
+      <!-- Embedded PDF -->
+      <div class="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
+          PDF Preview
+        </div>
+        <iframe :src="'../../pdfs/' + (selected?.doc_name||'') + '.pdf'"
+          class="w-full" style="height: 68vh;"
+          frameborder="0" loading="lazy"></iframe>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function app() {
+  return {
+    questions: [],
+    documents: [],
+    loading: true,
+    error: null,
+
+    mode: 'questions',
+    selected: null,
+    showPdfForEvidence: {},
+
+    // question filters
+    qSearch: '', qCompany: '', qSector: '', qDocType: '', qYear: '', qQType: '', qReasoning: '',
+    // document filters
+    dSearch: '', dCompany: '', dSector: '', dDocType: '', dYear: '',
+
+    // dropdown options
+    allCompanies: [], allSectors: [], allDocTypes: [], allYears: [], allQTypes: [], allReasonings: [],
+
+    async init() {
+      try {
+        const [qText, dText] = await Promise.all([
+          fetch('../../data/financebench_open_source.jsonl').then(r => {
+            if (!r.ok) throw new Error(`${r.status} loading questions`);
+            return r.text();
+          }),
+          fetch('../../data/financebench_document_information.jsonl').then(r => {
+            if (!r.ok) throw new Error(`${r.status} loading documents`);
+            return r.text();
+          }),
+        ]);
+
+        const parseJsonl = t => t.trim().split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+        const uniq = arr => [...new Set(arr)].filter(x => x != null && x !== '');
+
+        const docList = parseJsonl(dText);
+        const rawQ = parseJsonl(qText);
+        const docMap = Object.fromEntries(docList.map(d => [d.doc_name, d]));
+
+        this.documents = docList;
+        this.questions = rawQ.map(q => ({ ...q, _doc: docMap[q.doc_name] || {} }));
+
+        this.allCompanies = uniq(this.questions.map(q => q.company)).sort();
+        this.allSectors   = uniq(docList.map(d => d.gics_sector)).sort();
+        this.allDocTypes  = uniq(docList.map(d => d.doc_type)).sort();
+        this.allYears     = uniq(docList.map(d => d.doc_period)).sort((a, b) => b - a);
+        this.allQTypes    = uniq(this.questions.map(q => q.question_type)).sort();
+        this.allReasonings = uniq(this.questions.map(q => q.question_reasoning)).sort();
+
+        this.loading = false;
+      } catch (e) {
+        this.error = e.message;
+        this.loading = false;
+      }
+    },
+
+    visibleQuestions() {
+      const s = this.qSearch.trim().toLowerCase();
+      return this.questions.filter(q => {
+        if (s) {
+          const hay = [
+            q.question, q.answer, q.justification, q.company, q.doc_name,
+            ...(q.evidence || []).flatMap(e => [e.evidence_text || '', e.evidence_text_full_page || '']),
+          ].join(' ').toLowerCase();
+          if (!hay.includes(s)) return false;
+        }
+        if (this.qCompany  && q.company !== this.qCompany) return false;
+        if (this.qSector   && q._doc?.gics_sector !== this.qSector) return false;
+        if (this.qDocType  && q._doc?.doc_type !== this.qDocType) return false;
+        if (this.qYear     && q._doc?.doc_period !== Number(this.qYear)) return false;
+        if (this.qQType    && q.question_type !== this.qQType) return false;
+        if (this.qReasoning && q.question_reasoning !== this.qReasoning) return false;
+        return true;
+      });
+    },
+
+    visibleDocuments() {
+      const s = this.dSearch.trim().toLowerCase();
+      return this.documents.filter(d => {
+        if (s && ![d.doc_name, d.company, d.gics_sector, d.doc_type].join(' ').toLowerCase().includes(s)) return false;
+        if (this.dCompany  && d.company !== this.dCompany) return false;
+        if (this.dSector   && d.gics_sector !== this.dSector) return false;
+        if (this.dDocType  && d.doc_type !== this.dDocType) return false;
+        if (this.dYear     && d.doc_period !== Number(this.dYear)) return false;
+        return true;
+      });
+    },
+
+    switchMode(m) { this.mode = m; this.selected = null; this.showPdfForEvidence = {}; },
+    selectItem(item) { this.selected = item; this.showPdfForEvidence = {}; },
+    togglePdf(idx) {
+      this.showPdfForEvidence = { ...this.showPdfForEvidence, [idx]: !this.showPdfForEvidence[idx] };
+    },
+
+    pdfUrl(ev) {
+      const doc  = ev.doc_name || ev.evidence_doc_name || this.selected?.doc_name || '';
+      const page = (ev.evidence_page_num ?? 0) + 1;
+      return `../../pdfs/${doc}.pdf#page=${page}`;
+    },
+
+    questionsForDoc(docName) {
+      return this.questions.filter(q => q.doc_name === docName).length;
+    },
+
+    clearQFilters() {
+      this.qSearch = ''; this.qCompany = ''; this.qSector = '';
+      this.qDocType = ''; this.qYear = ''; this.qQType = ''; this.qReasoning = '';
+    },
+    clearDFilters() {
+      this.dSearch = ''; this.dCompany = ''; this.dSector = ''; this.dDocType = ''; this.dYear = '';
+    },
+
+    hasActiveQFilters() {
+      return !!(this.qSearch || this.qCompany || this.qSector || this.qDocType || this.qYear || this.qQType || this.qReasoning);
+    },
+    hasActiveDFilters() {
+      return !!(this.dSearch || this.dCompany || this.dSector || this.dDocType || this.dYear);
+    },
+
+    qTypeClass(t) {
+      return ({
+        'metrics-generated': 'bg-blue-100 text-blue-700 border-blue-200',
+        'domain-relevant':   'bg-violet-100 text-violet-700 border-violet-200',
+        'novel-generated':   'bg-emerald-100 text-emerald-700 border-emerald-200',
+      })[t] || 'bg-gray-100 text-gray-600 border-gray-200';
+    },
+
+    docTypeClass(t) {
+      const k = (t || '').toLowerCase();
+      if (k.startsWith('10k')) return 'bg-indigo-100 text-indigo-700';
+      if (k.startsWith('10q')) return 'bg-sky-100 text-sky-700';
+      if (k.startsWith('8k'))  return 'bg-rose-100 text-rose-700';
+      if (k === 'earnings')    return 'bg-amber-100 text-amber-700';
+      return 'bg-gray-100 text-gray-600';
+    },
+  };
+}
+</script>
+</body>
+</html>
